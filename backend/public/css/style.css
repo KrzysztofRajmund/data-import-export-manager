@@ -9,6 +9,8 @@
     --border: #dbe1ea;
     --danger-bg: #fff2f2;
     --danger-text: #9f1239;
+    --success-bg: #ecfdf5;
+    --success-text: #065f46;
 }
 
 * {
@@ -109,6 +111,12 @@ body {
     border: 1px solid #fecdd3;
 }
 
+.notice-success {
+    background: var(--success-bg);
+    color: var(--success-text);
+    border: 1px solid #a7f3d0;
+}
+
 .page-header h2 {
     margin: 0;
     font-size: 1.4rem;
@@ -155,6 +163,120 @@ body {
     color: var(--muted);
 }
 
+.dataset-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.dataset-panel {
+    border: 1px solid var(--border);
+    border-radius: 0.65rem;
+    padding: 0.9rem;
+    background: var(--surface-soft);
+}
+
+.dataset-panel h3 {
+    margin-top: 0;
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th,
+td {
+    text-align: left;
+    padding: 0.65rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+}
+
+th {
+    background: var(--surface-soft);
+}
+
+.empty-state {
+    color: var(--muted);
+    border: 1px dashed var(--border);
+    border-radius: 0.65rem;
+    padding: 1rem;
+}
+
+.inline-form {
+    display: inline;
+}
+
+form label {
+    display: block;
+    margin: 0.75rem 0 0.35rem;
+    font-weight: 600;
+}
+
+form input,
+form textarea {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 0.45rem;
+    padding: 0.55rem 0.65rem;
+    font: inherit;
+}
+
+form textarea {
+    resize: vertical;
+}
+
+.button {
+    display: inline-block;
+    border: 1px solid transparent;
+    border-radius: 0.45rem;
+    padding: 0.45rem 0.65rem;
+    margin: 0.2rem 0.15rem;
+    font: inherit;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.button-primary {
+    margin-top: 0.75rem;
+    background: var(--primary);
+    color: #ffffff;
+}
+
+.button-secondary {
+    background: #ffffff;
+    color: var(--primary-dark);
+    border-color: #93c5fd;
+}
+
+.button-danger {
+    background: var(--danger-bg);
+    color: var(--danger-text);
+    border-color: #fecdd3;
+}
+
+dl {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 0.45rem;
+}
+
+dt {
+    font-weight: 700;
+}
+
+dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
 @media (max-width: 860px) {
     .layout {
         grid-template-columns: 1fr;
@@ -162,5 +284,9 @@ body {
 
     .app-nav ul {
         grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    }
+
+    .dataset-layout {
+        grid-template-columns: 1fr;
     }
 }
