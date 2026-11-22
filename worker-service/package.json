@@ -1,0 +1,13 @@
+{
+    "name": "data-import-export-manager-worker-service",
+    "version": "0.1.0",
+    "description": "Supporting Node.js service for CPU-intensive data processing using Worker Threads",
+    "type": "module",
+    "main": "src/server.js",
+    "scripts": {
+        "start": "node src/server.js"
+    },
+    "engines": {
+        "node": ">=18"
+    }
+}

@@ -1,0 +1,18 @@
+# PHP / Composer
+/backend/vendor/
+/backend/config/config.local.php
+composer.phar
+
+# Runtime storage (keep directories, ignore contents)
+/backend/storage/imports/*
+!/backend/storage/imports/.gitkeep
+/backend/storage/exports/*
+!/backend/storage/exports/.gitkeep
+
+# Node.js
+/worker-service/node_modules/
+/worker-service/.env
+
+# OS / editor
+.DS_Store
+*.log
