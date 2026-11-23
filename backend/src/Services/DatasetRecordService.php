@@ -46,7 +46,7 @@ final class DatasetRecordService
     }
 
     /** @return array<string, mixed> */
-    private function validateData(int $datasetId, array $input): array
+    public function validateData(int $datasetId, array $input): array
     {
         $data = [];
         foreach ($this->columnService->list($datasetId) as $column) {

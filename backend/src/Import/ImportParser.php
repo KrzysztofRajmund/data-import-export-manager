@@ -13,16 +13,16 @@ final class ImportParser
     public const MAX_PREVIEW_ROWS = 50;
 
     /** @return array{headers: array<int,string>, rows: array<int,array<int,mixed>>, worksheets: array<int,string>, worksheet: string} */
-    public function parse(string $path, string $extension, int $headerRow = 1, string $delimiter = 'auto', ?string $worksheet = null): array
+    public function parse(string $path, string $extension, int $headerRow = 1, string $delimiter = 'auto', ?string $worksheet = null, bool $preview = true): array
     {
         $extension = strtolower($extension);
-        if ($extension === 'csv') return $this->parseCsv($path, $headerRow, $delimiter);
-        if ($extension === 'xlsx') return $this->parseXlsx($path, $headerRow, $worksheet);
+        if ($extension === 'csv') return $this->parseCsv($path, $headerRow, $delimiter, $preview);
+        if ($extension === 'xlsx') return $this->parseXlsx($path, $headerRow, $worksheet, $preview);
         throw new RuntimeException('Only XLSX and CSV files are supported.');
     }
 
     /** @return array{headers: array<int,string>, rows: array<int,array<int,mixed>>, worksheets: array<int,string>, worksheet: string} */
-    private function parseCsv(string $path, int $headerRow, string $delimiter): array
+    private function parseCsv(string $path, int $headerRow, string $delimiter, bool $preview = true): array
     {
         $handle = fopen($path, 'rb');
         if ($handle === false) throw new RuntimeException('Could not open the uploaded CSV file.');
@@ -44,14 +44,14 @@ final class ImportParser
         foreach (array_slice($rows, $headerIndex + 1) as $row) {
             if ($this->isEmptyRow($row)) continue;
             $dataRows[] = array_pad(array_slice($row, 0, count($headers)), count($headers), null);
-            if (count($dataRows) >= self::MAX_PREVIEW_ROWS) break;
+            if (count($dataRows) >= self::MAX_PREVIEW_ROWS && $preview) break;
         }
 
         return ['headers' => $headers, 'rows' => $dataRows, 'worksheets' => [], 'worksheet' => ''];
     }
 
     /** @return array{headers: array<int,string>, rows: array<int,array<int,mixed>>, worksheets: array<int,string>, worksheet: string} */
-    private function parseXlsx(string $path, int $headerRow, ?string $worksheet): array
+    private function parseXlsx(string $path, int $headerRow, ?string $worksheet, bool $preview): array
     {
         $spreadsheet = IOFactory::load($path);
         $worksheets = [];
@@ -72,7 +72,7 @@ final class ImportParser
         }
 
         $dataRows = [];
-        $limit = min($highestRow, $headerIndex + self::MAX_PREVIEW_ROWS);
+        $limit = $preview ? min($highestRow, $headerIndex + self::MAX_PREVIEW_ROWS) : $highestRow;
         for ($rowNumber = $headerIndex + 1; $rowNumber <= $limit; $rowNumber++) {
             $row = [];
             $hasValue = false;
