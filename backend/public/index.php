@@ -17,6 +17,8 @@ session_start();
 use App\Controllers\DatasetController;
 use App\Controllers\DynamicDatasetController;
 use App\Database\Database;
+use App\Import\ImportParser;
+use App\Import\ImportService;
 use App\Repositories\DatasetColumnRepository;
 use App\Repositories\DatasetRecordRepository;
 use App\Repositories\DatasetRepository;
@@ -42,6 +44,103 @@ if (!$isValidPage) {
 $flashSuccess = $_SESSION['flash_success'] ?? null;
 $flashError = $_SESSION['flash_error'] ?? null;
 unset($_SESSION['flash_success'], $_SESSION['flash_error']);
+
+$importView = ['headers' => [], 'rows' => [], 'worksheets' => [], 'worksheet' => '', 'extension' => '', 'originalName' => '', 'headerRow' => 1, 'delimiter' => 'auto', 'suggestedTypes' => []];
+$importView = array_merge($importView, is_array($_SESSION['import_preview'] ?? null) ? $_SESSION['import_preview'] : []);
+
+if ($page === 'import') {
+    try {
+        $connection = Database::getConnection();
+        $datasetService = new DatasetService(new DatasetRepository($connection));
+        $importService = new ImportService($connection);
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            Csrf::validate(isset($_POST['csrf_token']) ? (string) $_POST['csrf_token'] : null);
+            $action = (string) ($_POST['action'] ?? '');
+
+            if ($action === 'import-upload') {
+                $stored = $importService->storeUpload($_FILES['import_file'] ?? []);
+                $headerRow = max(1, filter_input(INPUT_POST, 'header_row', FILTER_VALIDATE_INT) ?: 1);
+                $delimiter = (string) ($_POST['delimiter'] ?? 'auto');
+                $worksheet = (string) ($_POST['worksheet'] ?? '');
+                $parsed = (new ImportParser())->parse($stored['path'], $stored['extension'], $headerRow, $delimiter, $worksheet !== '' ? $worksheet : null);
+                $suggestedTypes = [];
+                foreach ($parsed['headers'] as $index => $header) {
+                    $suggestedTypes[] = $importService->suggestType(array_column($parsed['rows'], $index));
+                }
+                $importView = ['headers' => $parsed['headers'], 'rows' => $parsed['rows'], 'worksheets' => $parsed['worksheets'], 'worksheet' => $parsed['worksheet'], 'extension' => $stored['extension'], 'originalName' => $stored['filename'], 'headerRow' => $headerRow, 'delimiter' => $delimiter, 'suggestedTypes' => $suggestedTypes, 'path' => $stored['path']];
+                $_SESSION['import_preview'] = $importView;
+                $_SESSION['flash_success'] = 'File uploaded and parsed. Review the preview and mapping before import.';
+            } elseif ($action === 'import-refresh') {
+                $preview = is_array($_SESSION['import_preview'] ?? null) ? $_SESSION['import_preview'] : null;
+                if ($preview === null || !is_file((string) ($preview['path'] ?? ''))) throw new RuntimeException('Please upload a file first.');
+                $headerRow = max(1, filter_input(INPUT_POST, 'header_row', FILTER_VALIDATE_INT) ?: 1);
+                $delimiter = (string) ($_POST['delimiter'] ?? 'auto');
+                $worksheet = (string) ($_POST['worksheet'] ?? '');
+                $parsed = (new ImportParser())->parse((string) $preview['path'], (string) $preview['extension'], $headerRow, $delimiter, $worksheet !== '' ? $worksheet : null);
+                $suggestedTypes = [];
+                foreach ($parsed['headers'] as $index => $header) $suggestedTypes[] = $importService->suggestType(array_column($parsed['rows'], $index));
+                $preview = array_merge($preview, ['headers' => $parsed['headers'], 'rows' => $parsed['rows'], 'worksheets' => $parsed['worksheets'], 'worksheet' => $parsed['worksheet'], 'headerRow' => $headerRow, 'delimiter' => $delimiter, 'suggestedTypes' => $suggestedTypes]);
+                $_SESSION['import_preview'] = $preview;
+                $importView = $preview;
+            } elseif ($action === 'import-confirm') {
+                $preview = is_array($_SESSION['import_preview'] ?? null) ? $_SESSION['import_preview'] : null;
+                if ($preview === null || !is_file((string) ($preview['path'] ?? ''))) throw new RuntimeException('Please upload a file first.');
+
+                $datasetMode = (string) ($_POST['dataset_mode'] ?? 'existing');
+                if ($datasetMode === 'new') {
+                    $datasetId = $datasetService->create((string) ($_POST['new_dataset_name'] ?? ''), (string) ($_POST['new_dataset_description'] ?? ''));
+                } else {
+                    $datasetId = filter_input(INPUT_POST, 'dataset_id', FILTER_VALIDATE_INT);
+                    if ($datasetId === false || $datasetId === null || $datasetService->get($datasetId) === null) throw new RuntimeException('Please select a valid existing dataset.');
+                }
+
+                $columnRepository = new DatasetColumnRepository($connection);
+                $columnService = new DatasetColumnService($columnRepository);
+                $recordService = new DatasetRecordService(new DatasetRecordRepository($connection), $columnService);
+                $nameMap = [];
+                foreach ($columnService->list($datasetId) as $existingColumn) $nameMap[$existingColumn->name] = $existingColumn;
+
+                $mapping = is_array($_POST['mapping'] ?? null) ? $_POST['mapping'] : [];
+                foreach ($preview['headers'] as $index => $header) {
+                    $setting = is_array($mapping[$index] ?? null) ? $mapping[$index] : [];
+                    if (isset($setting['skip'])) continue;
+                    $label = trim((string) ($setting['label'] ?? $header));
+                    $name = $importService->columnName($label, $index);
+                    if (!isset($nameMap[$name])) {
+                        $columnService->create($datasetId, $name, $label !== '' ? $label : (string) $header, (string) ($setting['type'] ?? 'string'), isset($setting['required']), isset($setting['searchable']));
+                        foreach ($columnService->list($datasetId) as $createdColumn) if ($createdColumn->name === $name) $nameMap[$name] = $createdColumn;
+                    }
+                }
+
+                $parsed = (new ImportParser())->parse((string) $preview['path'], (string) $preview['extension'], (int) $preview['headerRow'], (string) $preview['delimiter'], $preview['worksheet'] !== '' ? (string) $preview['worksheet'] : null);
+                $imported = 0;
+                foreach ($parsed['rows'] as $row) {
+                    $input = [];
+                    foreach ($preview['headers'] as $index => $header) {
+                        $setting = is_array($mapping[$index] ?? null) ? $mapping[$index] : [];
+                        if (isset($setting['skip'])) continue;
+                        $name = $importService->columnName(trim((string) ($setting['label'] ?? $header)), $index);
+                        $input[$name] = $row[$index] ?? null;
+                    }
+                    if ($input !== []) { $recordService->create($datasetId, $input); $imported++; }
+                }
+
+                unlink((string) $preview['path']);
+                unset($_SESSION['import_preview']);
+                $_SESSION['flash_success'] = 'Import completed: ' . $imported . ' record(s) imported.';
+                header('Location: /?page=datasets&dataset=' . $datasetId);
+                exit;
+            }
+
+            header('Location: /?page=import');
+            exit;
+        }
+        $importView['datasets'] = $datasetService->list();
+    } catch (Throwable $exception) {
+        $flashError = $exception->getMessage();
+    }
+}
 
 $datasetController = null;
 if ($page === 'datasets') {
@@ -232,7 +331,8 @@ header('Content-Type: text/html; charset=' . $appConfig['charset']);
                     <p>Create, view, rename and delete datasets.</p>
                 </section>
 
-                <section class="dataset-layout">
+                <section class="dataset-layout<?= $selectedDataset !== null ? ' dataset-detail-layout' : ''; ?>">
+                    <?php if ($selectedDataset === null): ?>
                     <div>
                         <h3>Dataset list</h3>
                         <?php if ($datasetView['datasets'] === []): ?>
@@ -262,9 +362,11 @@ header('Content-Type: text/html; charset=' . $appConfig['charset']);
                             </div>
                         <?php endif; ?>
                     </div>
+                    <?php endif; ?>
 
                     <aside class="dataset-panel">
                         <?php if ($selectedDataset !== null): ?>
+                            <a class="button button-secondary" href="/?page=datasets">← Back to dataset list</a>
                             <h3>Dataset details</h3>
                             <dl>
                                 <dt>Name</dt><dd><?= htmlspecialchars($selectedDataset->name, ENT_QUOTES, 'UTF-8'); ?></dd>
@@ -426,63 +528,100 @@ header('Content-Type: text/html; charset=' . $appConfig['charset']);
                         <?php endif; ?>
                     </aside>
                 </section>
-            <?php elseif ($page === 'dynamic-dataset' && $dynamicDatasetView !== null): ?>
-                <?php $records = $dynamicDatasetView['records']; ?>
+            <?php elseif ($page === 'import'): ?>
                 <section class="page-header">
-                    <h2>Dynamic Dataset View</h2>
-                    <p>View and manage records for the dataset.</p>
+                    <h2>Import</h2>
+                    <p>Upload an XLSX or CSV file, review the preview and configure column mapping.</p>
                 </section>
+                <h3>Upload file</h3>
+                <form method="post" action="/?page=import" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(Csrf::token(), ENT_QUOTES, 'UTF-8'); ?>">
+                    <input type="hidden" name="action" value="import-upload">
+                    <label for="import-file">XLSX or CSV file (maximum 10 MB)</label>
+                    <input id="import-file" type="file" name="import_file" accept=".xlsx,.csv" required>
+                    <label for="header-row">Header row</label>
+                    <input id="header-row" type="number" name="header_row" min="1" value="<?= (int) $importView['headerRow']; ?>">
+                    <label for="csv-delimiter">CSV delimiter</label>
+                    <select id="csv-delimiter" name="delimiter">
+                        <?php foreach (['auto' => 'Detect automatically', 'comma' => 'Comma (,)', 'semicolon' => 'Semicolon (;)', 'tab' => 'Tab'] as $value => $label): ?>
+                            <option value="<?= $value; ?>" <?= $importView['delimiter'] === $value ? 'selected' : ''; ?>><?= $label; ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <button class="button button-primary" type="submit">Upload and preview</button>
+                </form>
 
-                <section class="record-layout">
-                    <div>
-                        <h3>Record list</h3>
-                        <?php if ($records === []): ?>
-                            <p class="empty-state">No records found. Add the first record below.</p>
+                <?php if ($importView['headers'] !== []): ?>
+                    <h3>Preview: <?= htmlspecialchars($importView['originalName'], ENT_QUOTES, 'UTF-8'); ?></h3>
+                    <form method="post" action="/?page=import">
+                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(Csrf::token(), ENT_QUOTES, 'UTF-8'); ?>">
+                        <input type="hidden" name="action" value="import-refresh">
+                        <label for="refresh-header-row">Header row</label>
+                        <input id="refresh-header-row" type="number" name="header_row" min="1" value="<?= (int) $importView['headerRow']; ?>">
+                        <?php if ($importView['extension'] === 'csv'): ?>
+                            <label for="refresh-delimiter">CSV delimiter</label>
+                            <select id="refresh-delimiter" name="delimiter">
+                                <?php foreach (['auto' => 'Detect automatically', 'comma' => 'Comma (,)', 'semicolon' => 'Semicolon (;)', 'tab' => 'Tab'] as $value => $label): ?>
+                                    <option value="<?= $value; ?>" <?= $importView['delimiter'] === $value ? 'selected' : ''; ?>><?= $label; ?></option>
+                                <?php endforeach; ?>
+                            </select>
                         <?php else: ?>
-                            <div class="table-wrap">
-                                <table>
-                                    <thead>
-                                    <tr>
-                                        <th>Actions</th>
-                                        <?php foreach ($records[0] as $columnName => $value): ?>
-                                            <th><?= htmlspecialchars($columnName, ENT_QUOTES, 'UTF-8'); ?></th>
-                                        <?php endforeach; ?>
-                                    </tr>
-                                    </thead>
-                                    <tbody>
-                                    <?php foreach ($records as $record): ?>
-                                        <tr>
-                                            <td>
-                                                <form class="inline-form" method="post" action="/?page=datasets&dataset=<?= $datasetId; ?>">
-                                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(Csrf::token(), ENT_QUOTES, 'UTF-8'); ?>">
-                                                    <input type="hidden" name="action" value="delete">
-                                                    <input type="hidden" name="record_id" value="<?= $record['id']; ?>">
-                                                    <button class="button button-danger" type="submit" onclick="return confirm('Delete this record?')">Delete</button>
-                                                </form>
-                                            </td>
-                                            <?php foreach ($record as $columnName => $value): ?>
-                                                <td>
-                                                    <form method="post" action="/?page=datasets&dataset=<?= $datasetId; ?>">
-                                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(Csrf::token(), ENT_QUOTES, 'UTF-8'); ?>">
-                                                        <input type="hidden" name="action" value="update">
-                                                        <input type="hidden" name="record_id" value="<?= $record['id']; ?>">
-                                                        <input type="hidden" name="column_name" value="<?= htmlspecialchars($columnName, ENT_QUOTES, 'UTF-8'); ?>">
-                                                        <input type="text" name="value" value="<?= htmlspecialchars($value, ENT_QUOTES, 'UTF-8'); ?>" onchange="this.form.submit()">
-                                                    </form>
-                                                </td>
-                                            <?php endforeach; ?>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                    </tbody>
-                                </table>
-                            </div>
+                            <label for="worksheet">Worksheet</label>
+                            <select id="worksheet" name="worksheet">
+                                <?php foreach ($importView['worksheets'] as $sheet): ?>
+                                    <option value="<?= htmlspecialchars($sheet, ENT_QUOTES, 'UTF-8'); ?>" <?= $importView['worksheet'] === $sheet ? 'selected' : ''; ?>><?= htmlspecialchars($sheet, ENT_QUOTES, 'UTF-8'); ?></option>
+                                <?php endforeach; ?>
+                            </select>
                         <?php endif; ?>
-                    </div>
-                </section>
+                        <button class="button button-secondary" type="submit">Refresh preview</button>
+                    </form>
+
+                    <div class="table-wrap"><table>
+                        <thead><tr><?php foreach ($importView['headers'] as $header): ?><th><?= htmlspecialchars((string) $header, ENT_QUOTES, 'UTF-8'); ?></th><?php endforeach; ?></tr></thead>
+                        <tbody>
+                        <?php if ($importView['rows'] === []): ?>
+                            <tr><td colspan="<?= count($importView['headers']); ?>">No data rows found.</td></tr>
+                        <?php else: ?>
+                            <?php foreach ($importView['rows'] as $row): ?><tr><?php foreach ($row as $value): ?><td><?= $value === null ? '—' : htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8'); ?></td><?php endforeach; ?></tr><?php endforeach; ?>
+                        <?php endif; ?>
+                        </tbody>
+                    </table></div>
+
+                    <h3>Column mapping and dataset</h3>
+                    <form method="post" action="/?page=import">
+                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(Csrf::token(), ENT_QUOTES, 'UTF-8'); ?>">
+                        <input type="hidden" name="action" value="import-confirm">
+                        <div class="table-wrap"><table>
+                            <thead><tr><th>Source column</th><th>Label</th><th>Type</th><th>Required</th><th>Searchable</th><th>Skip</th></tr></thead>
+                            <tbody>
+                            <?php foreach ($importView['headers'] as $index => $header): ?>
+                                <tr>
+                                    <td><?= htmlspecialchars((string) $header, ENT_QUOTES, 'UTF-8'); ?></td>
+                                    <td><input name="mapping[<?= $index; ?>][label]" value="<?= htmlspecialchars((string) $header, ENT_QUOTES, 'UTF-8'); ?>" maxlength="255" required></td>
+                                    <td><select name="mapping[<?= $index; ?>][type]"><?php foreach (['string', 'integer', 'decimal', 'boolean', 'date', 'datetime'] as $type): ?><option value="<?= $type; ?>" <?= $importView['suggestedTypes'][$index] === $type ? 'selected' : ''; ?>><?= ucfirst($type); ?></option><?php endforeach; ?></select></td>
+                                    <td><input type="checkbox" name="mapping[<?= $index; ?>][required]" value="1"></td>
+                                    <td><input type="checkbox" name="mapping[<?= $index; ?>][searchable]" value="1"></td>
+                                    <td><input type="checkbox" name="mapping[<?= $index; ?>][skip]" value="1"></td>
+                                </tr>
+                            <?php endforeach; ?>
+                            </tbody>
+                        </table></div>
+                        <fieldset>
+                            <legend>Destination dataset</legend>
+                            <label><input type="radio" name="dataset_mode" value="existing" checked> Use existing dataset</label>
+                            <select name="dataset_id">
+                                <option value="">Select dataset</option>
+                                <?php foreach (($importView['datasets'] ?? []) as $dataset): ?><option value="<?= $dataset->id; ?>"><?= htmlspecialchars($dataset->name, ENT_QUOTES, 'UTF-8'); ?></option><?php endforeach; ?>
+                            </select>
+                            <label><input type="radio" name="dataset_mode" value="new"> Create new dataset</label>
+                            <input name="new_dataset_name" maxlength="255" placeholder="New dataset name">
+                            <textarea name="new_dataset_description" maxlength="4000" rows="3" placeholder="Description"></textarea>
+                        </fieldset>
+                        <button class="button button-primary" type="submit" onclick="return confirm('Import and save the previewed rows?')">Confirm and import</button>
+                    </form>
+                <?php endif; ?>
             <?php else:
                 $placeholders = match ($page) {
                     'dashboard' => ['Total datasets: placeholder', 'Total records: placeholder', 'Recent imports: placeholder', 'Recent exports: placeholder'],
-                    'import' => ['Upload form placeholder', 'Import jobs status placeholder'],
                     'export-history' => ['Export jobs table placeholder', 'Filters placeholder'],
                     default => [],
                 };
