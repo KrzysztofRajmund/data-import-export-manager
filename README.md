@@ -121,3 +121,43 @@ Stop MySQL:
 ```bash
 brew services stop mysql@8.4
 ```
+
+## Node.js Worker Service
+
+The Worker service is optional. PHP processes datasets with fewer than 500 rows locally and automatically falls back to PHP for larger batches if Node.js is unavailable, times out, or rejects a request.
+
+Start it with environment variables:
+
+```bash
+cd worker-service
+WORKER_HOST=127.0.0.1 \
+WORKER_PORT=3001 \
+WORKER_API_KEY=change-this-local-worker-secret \
+WORKER_COUNT=2 \
+WORKER_BATCH_SIZE=500 \
+node src/server.js
+```
+
+The service binds only to `127.0.0.1` and requires `X-API-Key` with the configured shared secret. PHP is configured in `backend/config/config.local.php` under `worker`:
+
+```php
+'worker' => [
+    'url' => 'http://127.0.0.1:3001/process-batch',
+    'apiKey' => 'change-this-local-worker-secret',
+    'timeoutMs' => 2000,
+],
+```
+
+Test it directly:
+
+```bash
+curl -i -X POST http://127.0.0.1:3001/process-batch \
+  -H 'Content-Type: application/json' \
+  -H 'X-API-Key: change-this-local-worker-secret' \
+  --data '{"headers":["Name"],"mapping":{"0":{"name":"Name","label":"Name","skip":false}},"rows":[["Ada"],["Ada"]],"headerRow":1,"columns":[{"name":"Name","label":"Name","dataType":"string","isRequired":false}],"batchOffset":0}'
+
+# Missing key should return HTTP 401.
+curl -i -X POST http://127.0.0.1:3001/process-batch -H 'Content-Type: application/json' --data '{}'
+```
+
+For fallback testing, stop Node.js and validate an import containing at least 500 rows. Validation should complete through PHP; persistence and database access remain in PHP. PHP cURL communication has a 2-second timeout and a 500 ms connection timeout by default.

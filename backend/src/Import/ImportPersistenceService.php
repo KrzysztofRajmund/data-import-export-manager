@@ -26,11 +26,83 @@ final class ImportPersistenceService
     /** @return array{validRows: array<int,array>, errors: array<int,array>, totalRows:int, importedRows:int, failedRows:int} */
     public function validate(int $datasetId, array $headers, array $mapping, array $rows, int $headerRow): array
     {
+        if (count($rows) < 500) {
+            return $this->validateWithPhp($datasetId, $headers, $mapping, $rows, $headerRow);
+        }
+
+        $columns = $this->columnService->list($datasetId);
+        $workerColumns = array_map(static fn($column) => [
+            'name' => $column->name,
+            'label' => $column->label,
+            'dataType' => $column->dataType,
+            'isRequired' => $column->isRequired,
+        ], $columns);
+
+        $workerMapping = [];
+        $importService = new ImportService($this->connection);
+        foreach ($headers as $index => $header) {
+            $setting = is_array($mapping[$index] ?? null) ? $mapping[$index] : [];
+            $label = trim((string) ($setting['label'] ?? $header));
+            $workerMapping[$index] = [
+                'skip' => isset($setting['skip']),
+                'label' => $label,
+                'name' => $importService->columnName($label, $index),
+            ];
+        }
+
+        $validRows = [];
+        $errors = [];
+        foreach (array_chunk($rows, 500, true) as $batchIndex => $batch) {
+            $response = (new \App\Services\BatchProcessingClient())->process([
+                'headers' => $headers,
+                'mapping' => $workerMapping,
+                'rows' => array_values($batch),
+                'headerRow' => $headerRow,
+                'columns' => $workerColumns,
+                'batchOffset' => $batchIndex * 500,
+            ]);
+            if (!$response['ok']) {
+                return $this->validateWithPhp($datasetId, $headers, $mapping, $rows, $headerRow);
+            }
+            $validRows = array_merge($validRows, $response['result']['validRows'] ?? []);
+            $errors = array_merge($errors, $response['result']['errors'] ?? []);
+        }
+
+        $seen = [];
+        $finalValidRows = [];
+        $finalErrors = $errors;
+        foreach ($validRows as $row) {
+            $input = $row['data'];
+            $canonical = json_encode($input, JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
+            $rowErrors = [];
+            if (is_string($canonical) && isset($seen[$canonical])) {
+                $rowErrors[] = ['rowNumber' => $row['rowNumber'], 'columnName' => null, 'message' => 'Duplicate record: this row repeats a record in the import file.'];
+            } elseif (is_string($canonical) && $this->jobRepository->recordExistsExactly($datasetId, $input)) {
+                $rowErrors[] = ['rowNumber' => $row['rowNumber'], 'columnName' => null, 'message' => 'Duplicate record: this record already exists in the dataset.'];
+            } elseif (is_string($canonical)) {
+                $seen[$canonical] = true;
+            }
+
+            if ($rowErrors === []) $finalValidRows[] = $row;
+            else $finalErrors = array_merge($finalErrors, $rowErrors);
+        }
+
+        $totalRows = count($rows);
+        return [
+            'validRows' => $finalValidRows,
+            'errors' => $finalErrors,
+            'totalRows' => $totalRows,
+            'importedRows' => count($finalValidRows),
+            'failedRows' => $totalRows - count($finalValidRows),
+        ];
+    }
+
+    /** @return array{validRows: array<int,array>, errors: array<int,array>, totalRows:int, importedRows:int, failedRows:int} */
+    private function validateWithPhp(int $datasetId, array $headers, array $mapping, array $rows, int $headerRow): array
+    {
         $columns = $this->columnService->list($datasetId);
         $definitions = [];
-        foreach ($columns as $column) {
-            $definitions[$column->name] = $column;
-        }
+        foreach ($columns as $column) $definitions[$column->name] = $column;
 
         $validRows = [];
         $errors = [];
@@ -52,7 +124,7 @@ final class ImportPersistenceService
                     $rowErrors[] = ['rowNumber' => $rowNumber, 'columnName' => $name, 'message' => 'Field "' . $label . '" is not a valid dataset column.'];
                     continue;
                 }
-
+                
                 try {
                     $input[$name] = $this->columnService->validateValue($column, $row[$index] ?? null);
                 } catch (RuntimeException $exception) {
@@ -77,21 +149,12 @@ final class ImportPersistenceService
                 $seen[$canonical] = true;
             }
 
-            if ($rowErrors === []) {
-                $validRows[] = ['rowNumber' => $rowNumber, 'data' => $input];
-            } else {
-                $errors = array_merge($errors, $rowErrors);
-            }
+            if ($rowErrors === []) $validRows[] = ['rowNumber' => $rowNumber, 'data' => $input];
+            else $errors = array_merge($errors, $rowErrors);
         }
 
         $totalRows = count($rows);
-        return [
-            'validRows' => $validRows,
-            'errors' => $errors,
-            'totalRows' => $totalRows,
-            'importedRows' => count($validRows),
-            'failedRows' => $totalRows - count($validRows),
-        ];
+        return ['validRows' => $validRows, 'errors' => $errors, 'totalRows' => $totalRows, 'importedRows' => count($validRows), 'failedRows' => $totalRows - count($validRows)];
     }
 
     public function persist(int $datasetId, string $filename, array $validRows, array $errors, ?int $totalRows = null): array

@@ -12,4 +12,9 @@ return [
         'database' => 'data_import_export_manager',
         'charset' => 'utf8mb4',
     ],
+    'worker' => [
+        'url' => 'http://127.0.0.1:3001/process-batch',
+        'apiKey' => 'change-this-local-worker-secret',
+        'timeoutMs' => 2000,
+    ],
 ];
