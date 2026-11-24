@@ -144,6 +144,48 @@ body {
     min-height: 88px;
 }
 
+.dashboard-cards .card strong {
+    display: block;
+    color: var(--primary-dark);
+    font-size: 1.9rem;
+    line-height: 1.1;
+}
+
+.dashboard-cards .card span {
+    display: block;
+    margin-top: 0.45rem;
+    color: var(--muted);
+}
+
+.dashboard-history {
+    margin-top: 1.25rem;
+}
+
+.status {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    background: var(--surface-soft);
+}
+
+.status-completed {
+    background: var(--success-bg);
+    color: var(--success-text);
+}
+
+.status-failed {
+    background: var(--danger-bg);
+    color: var(--danger-text);
+}
+
+.status-processing,
+.status-pending {
+    background: #dbeafe;
+    color: #1e3a8a;
+}
+
 .system-info {
     margin-top: 1.1rem;
     border-top: 1px solid var(--border);

@@ -62,6 +62,24 @@ final class ImportJobRepository
         $statement->execute();
     }
 
+    /** @return array<int,array<string,mixed>> */
+    public function findAll(): array
+    {
+        $result = $this->connection->query(
+            'SELECT ij.id, ij.dataset_id, ij.filename, ij.status, ij.total_rows,
+                    ij.imported_rows, ij.failed_rows, ij.created_at, ij.completed_at,
+                    d.name AS dataset_name
+             FROM import_jobs ij
+             INNER JOIN datasets d ON d.id = ij.dataset_id
+             ORDER BY ij.created_at DESC, ij.id DESC'
+        );
+        $jobs = [];
+        while ($row = $result->fetch_assoc()) {
+            $jobs[] = $row;
+        }
+        return $jobs;
+    }
+
     public function recordExistsExactly(int $datasetId, array $data): bool
     {
         $statement = $this->connection->prepare('SELECT data FROM dataset_records WHERE dataset_id = ?');

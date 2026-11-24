@@ -161,3 +161,24 @@ curl -i -X POST http://127.0.0.1:3001/process-batch -H 'Content-Type: applicatio
 ```
 
 For fallback testing, stop Node.js and validate an import containing at least 500 rows. Validation should complete through PHP; persistence and database access remain in PHP. PHP cURL communication has a 2-second timeout and a 500 ms connection timeout by default.
+
+## Storage Cleanup
+
+Uploaded and generated files are stored outside the public directory. Remove files older than seven days (the default) with:
+
+```bash
+cd backend
+php bin/cleanup.php
+```
+
+Configure another retention period with:
+
+```bash
+php bin/cleanup.php --days=30
+```
+
+The script deletes files in `backend/storage/imports/` and `backend/storage/exports/`. It can be scheduled with macOS `cron` or `launchd`, for example once daily:
+
+```text
+0 3 * * * cd /absolute/path/to/data-import-export-manager/backend && /usr/bin/php bin/cleanup.php --days=7
+```

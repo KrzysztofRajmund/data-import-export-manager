@@ -14,17 +14,20 @@ ini_set('display_errors', $appConfig['display_errors'] ? '1' : '0');
 
 session_start();
 
+use App\Controllers\DashboardController;
 use App\Controllers\DatasetController;
 use App\Controllers\ExportController;
 use App\Controllers\ImportController;
 use App\Database\Database;
 use App\Repositories\DatasetRepository;
+use App\Repositories\ImportJobRepository;
 use App\Services\DatasetService;
 
 $navigation = [
     'dashboard' => 'Dashboard',
     'datasets' => 'Datasets',
     'import' => 'Import',
+    'import-history' => 'Import History',
     'export-history' => 'Export History',
 ];
 
@@ -41,6 +44,18 @@ unset($_SESSION['flash_success'], $_SESSION['flash_error']);
 
 $importView = ['headers' => [], 'rows' => [], 'worksheets' => [], 'worksheet' => '', 'extension' => '', 'originalName' => '', 'headerRow' => 1, 'delimiter' => 'auto', 'suggestedTypes' => [], 'validation' => is_array($_SESSION['import_validation'] ?? null) ? $_SESSION['import_validation'] : null];
 $importView = array_merge($importView, is_array($_SESSION['import_preview'] ?? null) ? $_SESSION['import_preview'] : []);
+
+$dashboardView = ['counts' => [], 'recentImports' => [], 'recentExports' => []];
+$importHistory = [];
+if ($page === 'dashboard' || $page === 'import-history') {
+    try {
+        $dashboardView = (new DashboardController())->index();
+        $connection = Database::getConnection();
+        $importHistory = (new ImportJobRepository($connection))->findAll();
+    } catch (Throwable $exception) {
+        $flashError = 'Could not load operation history: ' . $exception->getMessage();
+    }
+}
 
 if ($page === 'import') {
     $importView = (new ImportController())->index();
@@ -111,26 +126,18 @@ header('Content-Type: text/html; charset=' . $appConfig['charset']);
                 <section class="notice notice-error" role="alert"><?= htmlspecialchars($flashError, ENT_QUOTES, 'UTF-8'); ?></section>
             <?php endif; ?>
 
-            <?php if ($page === 'datasets'): ?>
+            <?php if ($page === 'dashboard'): ?>
+                <?php require __DIR__ . '/../src/Views/dashboard.php'; ?>
+            <?php elseif ($page === 'datasets'): ?>
                 <?php require __DIR__ . '/../src/Views/datasets.php'; ?>
             <?php elseif ($page === 'import'): ?>
                 <?php require __DIR__ . '/../src/Views/import.php'; ?>
+            <?php elseif ($page === 'import-history'): ?>
+                <?php require __DIR__ . '/../src/Views/import-history.php'; ?>
             <?php elseif ($page === 'export-history'): ?>
                 <?php require __DIR__ . '/../src/Views/export.php'; ?>
-            <?php else:
-                $placeholders = match ($page) {
-                    'dashboard' => ['Total datasets: placeholder', 'Total records: placeholder', 'Recent imports: placeholder', 'Recent exports: placeholder'],
-                    'export-history' => ['Export jobs table placeholder', 'Filters placeholder'],
-                    default => [],
-                };
-            ?>
-                <section class="page-header">
-                    <h2><?= htmlspecialchars($navigation[$page], ENT_QUOTES, 'UTF-8'); ?></h2>
-                    <p>Placeholder</p>
-                </section>
-                <section class="card-grid">
-                    <?php foreach ($placeholders as $card): ?><article class="card"><?= htmlspecialchars($card, ENT_QUOTES, 'UTF-8'); ?></article><?php endforeach; ?>
-                </section>
+            <?php else: ?>
+                <section class="notice notice-error"><strong>Page not found.</strong></section>
             <?php endif; ?>
         </main>
     </div>
