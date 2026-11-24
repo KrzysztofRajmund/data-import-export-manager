@@ -68,7 +68,7 @@ final class BatchProcessingClient
         }
 
         $url = (string) ($fileConfig['url'] ?? (getenv('WORKER_URL') ?: 'http://127.0.0.1:3001/process-batch'));
-        $apiKey = (string) ($fileConfig['apiKey'] ?? (getenv('WORKER_API_KEY') ?: 'change-this-local-worker-secret'));
+        $apiKey = (string) ($fileConfig['apiKey'] ?? (getenv('WORKER_API_KEY') ?: 'local-worker-secret'));
         $timeoutMs = (int) ($fileConfig['timeoutMs'] ?? (getenv('WORKER_TIMEOUT_MS') ?: 2000));
 
         if ($apiKey === '') throw new RuntimeException('Worker API key is not configured.');

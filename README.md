@@ -132,7 +132,7 @@ Start it with environment variables:
 cd worker-service
 WORKER_HOST=127.0.0.1 \
 WORKER_PORT=3001 \
-WORKER_API_KEY=change-this-local-worker-secret \
+WORKER_API_KEY=local-worker-secret \
 WORKER_COUNT=2 \
 WORKER_BATCH_SIZE=500 \
 node src/server.js
@@ -143,7 +143,7 @@ The service binds only to `127.0.0.1` and requires `X-API-Key` with the configur
 ```php
 'worker' => [
     'url' => 'http://127.0.0.1:3001/process-batch',
-    'apiKey' => 'change-this-local-worker-secret',
+    'apiKey' => 'local-worker-secret',
     'timeoutMs' => 2000,
 ],
 ```
@@ -153,7 +153,7 @@ Test it directly:
 ```bash
 curl -i -X POST http://127.0.0.1:3001/process-batch \
   -H 'Content-Type: application/json' \
-  -H 'X-API-Key: change-this-local-worker-secret' \
+  -H 'X-API-Key: local-worker-secret' \
   --data '{"headers":["Name"],"mapping":{"0":{"name":"Name","label":"Name","skip":false}},"rows":[["Ada"],["Ada"]],"headerRow":1,"columns":[{"name":"Name","label":"Name","dataType":"string","isRequired":false}],"batchOffset":0}'
 
 # Missing key should return HTTP 401.

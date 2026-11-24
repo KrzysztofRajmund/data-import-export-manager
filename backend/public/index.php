@@ -15,6 +15,7 @@ ini_set('display_errors', $appConfig['display_errors'] ? '1' : '0');
 session_start();
 
 use App\Controllers\DatasetController;
+use App\Controllers\ExportController;
 use App\Controllers\ImportController;
 use App\Database\Database;
 use App\Repositories\DatasetRepository;
@@ -56,6 +57,15 @@ if ($page === 'datasets') {
         $datasetView = $datasetController->index($selectedDatasetId);
     } catch (Throwable $exception) {
         $flashError = 'Could not access datasets: ' . $exception->getMessage();
+    }
+}
+
+$exportView = ['datasets' => [], 'dataset' => null, 'columns' => [], 'jobs' => []];
+if ($page === 'export-history') {
+    try {
+        $exportView = (new ExportController())->index();
+    } catch (Throwable $exception) {
+        $flashError = 'Could not export dataset: ' . $exception->getMessage();
     }
 }
 
@@ -105,6 +115,8 @@ header('Content-Type: text/html; charset=' . $appConfig['charset']);
                 <?php require __DIR__ . '/../src/Views/datasets.php'; ?>
             <?php elseif ($page === 'import'): ?>
                 <?php require __DIR__ . '/../src/Views/import.php'; ?>
+            <?php elseif ($page === 'export-history'): ?>
+                <?php require __DIR__ . '/../src/Views/export.php'; ?>
             <?php else:
                 $placeholders = match ($page) {
                     'dashboard' => ['Total datasets: placeholder', 'Total records: placeholder', 'Recent imports: placeholder', 'Recent exports: placeholder'],

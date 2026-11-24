@@ -3,7 +3,7 @@ import { WorkerPool } from './services/workerPool.js';
 
 const host = process.env.WORKER_HOST || '127.0.0.1';
 const port = Number(process.env.WORKER_PORT || 3001);
-const apiKey = process.env.WORKER_API_KEY || 'change-this-local-worker-secret';
+const apiKey = process.env.WORKER_API_KEY || 'local-worker-secret';
 const workerCount = Math.max(1, Number(process.env.WORKER_COUNT || 2));
 const pool = new WorkerPool(workerCount);
 

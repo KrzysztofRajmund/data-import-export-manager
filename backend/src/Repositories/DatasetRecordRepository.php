@@ -119,4 +119,56 @@ final class DatasetRecordRepository
         $statement->execute();
         return $statement->affected_rows > 0;
     }
+
+    /** @return DatasetRecord[] */
+    public function findForExport(int $datasetId, string $search, array $searchableColumns, array $recordIds = []): array
+    {
+        $sql = 'SELECT id, dataset_id, data, created_at, updated_at FROM dataset_records WHERE dataset_id = ?';
+        $types = 'i';
+        $params = [$datasetId];
+
+        if ($recordIds !== []) {
+            $ids = array_values(array_unique(array_filter(array_map('intval', $recordIds), static fn (int $id): int|bool => $id > 0)));
+            if ($ids === []) {
+                return [];
+            }
+            $sql .= ' AND id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
+            $types .= str_repeat('i', count($ids));
+            foreach ($ids as $id) {
+                $params[] = $id;
+            }
+        } elseif ($search !== '' && $searchableColumns !== []) {
+            $searchable = array_values(array_filter($searchableColumns, static fn (DatasetColumn $column): bool => $column->isSearchable));
+            $first = $searchable[0] ?? $searchableColumns[0];
+            $like = '%' . $search . '%';
+            if ($first->isSearchable) {
+                $sql .= ' AND `' . 'col_' . $first->id . '` LIKE ?';
+            } else {
+                $jsonName = str_replace(['\\', '"'], ['\\\\', '\\"'], $first->name);
+                $sql .= " AND JSON_UNQUOTE(JSON_EXTRACT(data, '$.\"{$jsonName}\"')) LIKE ?";
+            }
+            $types .= 's';
+            $params[] = $like;
+        }
+
+        $sql .= ' ORDER BY id ASC';
+        $statement = $this->connection->prepare($sql);
+        $bindings = [$types];
+        foreach ($params as &$param) {
+            $bindings[] = &$param;
+        }
+        call_user_func_array([$statement, 'bind_param'], $bindings);
+        $statement->execute();
+        $result = $statement->get_result();
+
+        $records = [];
+        while ($row = $result->fetch_assoc()) {
+            $data = json_decode((string) $row['data'], true);
+            $records[] = new DatasetRecord(
+                (int) $row['id'], (int) $row['dataset_id'], is_array($data) ? $data : [],
+                (string) $row['created_at'], (string) $row['updated_at'],
+            );
+        }
+        return $records;
+    }
 }

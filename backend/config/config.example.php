@@ -14,7 +14,7 @@ return [
     ],
     'worker' => [
         'url' => 'http://127.0.0.1:3001/process-batch',
-        'apiKey' => 'change-this-local-worker-secret',
+        'apiKey' => 'local-worker-secret',
         'timeoutMs' => 2000,
     ],
 ];
