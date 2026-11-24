@@ -6,6 +6,8 @@ namespace App\Export;
 
 use App\Models\DatasetColumn;
 use App\Models\DatasetRecord;
+use Dompdf\Dompdf;
+use Dompdf\Options;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
@@ -73,6 +75,78 @@ final class ExportService
         $sheet->setAutoFilter($sheet->calculateWorksheetDimension());
         (new Xlsx($spreadsheet))->save($path);
         $spreadsheet->disconnectWorksheets();
+        return $path;
+    }
+
+    /** @param DatasetColumn[] $columns @param DatasetRecord[] $records */
+    public function exportPdf(array $columns, array $records, string $datasetName): string
+    {
+        $filename = $this->safeFilename($datasetName, 'pdf');
+        $path = $this->exportDirectory . '/' . $filename;
+
+        $options = new Options();
+        $options->set('isHtml5ParserEnabled', true);
+        $options->set('isRemoteEnabled', false);
+        $options->setDefaultFont('DejaVu Sans');
+
+        $dompdf = new Dompdf($options);
+        $dompdf->setPaper('A4', 'landscape');
+
+        $escape = static function (mixed $value): string {
+            return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        };
+
+        $html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'
+            . '@page { margin: 24mm 12mm 18mm 12mm; }'
+            . 'body { font-family: "DejaVu Sans", sans-serif; font-size: 9pt; color: #1f2937; }'
+            . 'h1 { margin: 0 0 4mm 0; font-size: 18pt; }'
+            . '.export-date { margin-bottom: 6mm; color: #4b5563; }'
+            . 'table { width: 100%; border-collapse: collapse; table-layout: fixed; }'
+            . 'thead { display: table-header-group; }'
+            . 'th, td { border: 1px solid #9ca3af; padding: 5px; vertical-align: top; overflow-wrap: anywhere; }'
+            . 'th { background: #dbeafe; font-weight: bold; }'
+            . 'tbody tr:nth-child(even) td { background: #f8fafc; }'
+            . '.empty { border: 1px dashed #9ca3af; padding: 12px; color: #6b7280; }'
+            . '.page-number { position: fixed; right: 0; bottom: -12mm; color: #6b7280; }'
+            . '.page-number:after { content: "Strona " counter(page) " z " counter(pages); }'
+            . '</style></head><body>'
+            . '<h1>' . $escape($datasetName) . '</h1>'
+            . '<div class="export-date">Data eksportu: ' . $escape(date('Y-m-d H:i:s')) . '</div>';
+
+        if ($records === []) {
+            $html .= '<div class="empty">Brak rekordów do wyświetlenia.</div>';
+        } else {
+            $html .= '<table><thead><tr>';
+            foreach ($columns as $column) {
+                $html .= '<th>' . $escape($column->label) . '</th>';
+            }
+            $html .= '</tr></thead><tbody>';
+            foreach ($records as $record) {
+                $html .= '<tr>';
+                foreach ($columns as $column) {
+                    $value = $record->data[$column->name] ?? null;
+                    if ($value === null) {
+                        $displayValue = '';
+                    } elseif (is_bool($value)) {
+                        $displayValue = $value ? 'true' : 'false';
+                    } else {
+                        $displayValue = (string) $value;
+                    }
+                    $html .= '<td>' . $escape($displayValue) . '</td>';
+                }
+                $html .= '</tr>';
+            }
+            $html .= '</tbody></table><div class="page-number"></div>';
+        }
+
+        $html .= '</body></html>';
+        $dompdf->loadHtml($html, 'UTF-8');
+        $dompdf->render();
+
+        $bytes = $dompdf->output();
+        if (file_put_contents($path, $bytes) === false) {
+            throw new \RuntimeException('Could not create PDF export file.');
+        }
         return $path;
     }
 

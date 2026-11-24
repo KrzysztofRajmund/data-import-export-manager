@@ -16,7 +16,7 @@ if ($selectedDatasetId !== null) {
 }
 ?>
 <section class="page-header">
-    <h2>Excel and CSV export</h2>
+    <h2>Export to Excel, CSV or PDF</h2>
     <p>Export a complete dataset or a filtered and selected subset.</p>
 </section>
 
@@ -43,6 +43,7 @@ if ($selectedDatasetId !== null) {
                 <select id="export-format" name="format">
                     <option value="xlsx">Excel (XLSX)</option>
                     <option value="csv">CSV</option>
+                    <option value="pdf">PDF</option>
                 </select>
 
                 <label for="csv-delimiter">CSV delimiter</label>

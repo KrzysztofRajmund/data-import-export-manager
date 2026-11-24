@@ -50,7 +50,7 @@ final class ExportController
         if ($dataset === null) throw new RuntimeException('Dataset not found.');
 
         $format = strtolower((string) ($_POST['format'] ?? ''));
-        if (!in_array($format, ['csv', 'xlsx'], true)) throw new RuntimeException('Unsupported export format.');
+        if (!in_array($format, ['csv', 'xlsx', 'pdf'], true)) throw new RuntimeException('Unsupported export format.');
 
         $columnService = new DatasetColumnService(new DatasetColumnRepository($connection));
         $allColumns = $columnService->list($datasetId);
@@ -74,9 +74,11 @@ final class ExportController
         try {
             $exportDirectory = dirname(__DIR__, 2) . '/storage/exports';
             $exportService = new ExportService($exportDirectory);
-            $path = $format === 'csv'
-                ? $exportService->exportCsv($columns, $records, $dataset->name, (string) ($_POST['delimiter'] ?? 'comma'))
-                : $exportService->exportXlsx($columns, $records, $dataset->name);
+            $path = match ($format) {
+                'csv' => $exportService->exportCsv($columns, $records, $dataset->name, (string) ($_POST['delimiter'] ?? 'comma')),
+                'xlsx' => $exportService->exportXlsx($columns, $records, $dataset->name),
+                'pdf' => $exportService->exportPdf($columns, $records, $dataset->name),
+            };
             $jobRepository->complete($jobId);
         } catch (\Throwable $exception) {
             $jobRepository->fail($jobId);
@@ -85,7 +87,11 @@ final class ExportController
 
         $downloadName = basename($path);
         header('Content-Description: File Transfer');
-        header('Content-Type: ' . ($format === 'csv' ? 'text/csv; charset=UTF-8' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'));
+        header('Content-Type: ' . match ($format) {
+            'csv' => 'text/csv; charset=UTF-8',
+            'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'pdf' => 'application/pdf',
+        });
         header('Content-Disposition: attachment; filename="' . $downloadName . '"');
         header('Content-Length: ' . (string) filesize($path));
         header('Cache-Control: no-store, no-cache, must-revalidate');
